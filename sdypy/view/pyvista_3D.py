@@ -297,7 +297,8 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
                      edge_color='black', 
                      opacity=1,
                      animate=None,
-                     n_frames=100
+                     n_frames=100,
+                     scalar_bar_args=None
                     ):
         """Add a finite element mesh to the plotter.
         
@@ -325,6 +326,12 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
             To start the animation, call the ``start_animation`` method.
         n_frames : int
             The number of frames in a single period of the animation.
+        scalar_bar_args : dict, optional
+            A dictionary of keyword arguments passed directly to the PyVista scalar bar.
+            Common keys: ``'title'`` (colorbar label), ``'fmt'`` (number format string,
+            e.g. ``'%.1f'``), ``'color'``, ``'width'``, ``'height'``.
+            See :func:`pyvista.Plotter.add_scalar_bar` for the full list.
+            Default is ``None`` (PyVista defaults).
         """
         mesh = create_fem_mesh(nodes, elements)
         self.mesh_dict[id(mesh)] = mesh
@@ -358,8 +365,11 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
         if field is not None:
             mesh.point_data[field_name] = field[:, 0]
-            actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap, edge_color=edge_color, opacity=opacity)
-            actor.mapper.scalar_range = (np.min(field), np.max(field)) # Set the field range
+            _sbar = scalar_bar_args if scalar_bar_args is not None else {}
+            actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap,
+                                  edge_color=edge_color, opacity=opacity,
+                                  scalar_bar_args=_sbar)
+            actor.mapper.scalar_range = (np.min(np.abs(field)), np.abs(np.max(field))) # Set the field range
 
         else:
             actor = self.add_mesh(mesh, show_edges=True, edge_color=edge_color, opacity=opacity)
@@ -753,7 +763,7 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
         if field is not None:
             mesh.point_data[field_name] = field_0
             actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap, opacity=opacity)
-            actor.mapper.scalar_range = (np.min(field), np.max(field)) # Set the field range
+            actor.mapper.scalar_range = (np.min(np.abs(field)), np.max(np.abs(field))) # Set the field range
 
         else:
             # actor = self.add_mesh(mesh, show_edges=True, edge_color=edge_color, opacity=opacity)

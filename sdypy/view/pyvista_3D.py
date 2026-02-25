@@ -553,7 +553,7 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
     def add_points(self, points, color='red', point_size=5.0, render_points_as_spheres=False, label="", 
                   animate=None, n_frames=100, field=None, field_name="field", cmap="viridis", opacity=1,
-                  connect_points=False, line_width=1.0):
+                  connect_points=False, line_width=1.0, scalar_bar_args=None,):
         """Add points to the plotter.
         
         Parameters
@@ -590,6 +590,12 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
             pairs of point indices to connect specific points. Default is False.
         line_width : float, optional
             Width of the connecting lines. Default is 1.0.
+        scalar_bar_args : dict, optional
+            A dictionary of keyword arguments passed directly to the PyVista scalar bar.
+            Common keys: ``'title'`` (colorbar label), ``'fmt'`` (number format string,
+            e.g. ``'%.1f'``), ``'color'``, ``'width'``, ``'height'``.
+            See :func:`pyvista.Plotter.add_scalar_bar` for the full list.
+            Default is ``None`` (PyVista defaults).
         """
         if points.ndim == 1:
             points = points[None, :]
@@ -625,10 +631,9 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
         if animate is not None:
             displacements = prepare_animation_displacements(animate, n_nodes=points.shape[0], n_frames=n_frames)
-
             mesh.points = mesh.points + displacements[:, :, 0]
             
-            if field == 'norm':
+            if isinstance(field, str) and field == 'norm':
                 field = np.linalg.norm(displacements, axis=1)
 
             # if field_name is already in animation_data, add different field_name
@@ -651,9 +656,11 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
         if field is not None:
             mesh.point_data[field_name] = field_0
+            _sbar = scalar_bar_args if scalar_bar_args is not None else {}
             actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap, 
-                                opacity=opacity, line_width=line_width)
-            actor.mapper.scalar_range = (np.min(field), np.max(field))
+                                opacity=opacity, line_width=line_width,
+                                scalar_bar_args=_sbar)
+            actor.mapper.scalar_range = (np.min(np.abs(field)), np.max(np.abs(field)))
 
         else:
             actor = self.add_mesh(mesh, color=color, point_size=point_size, label=label, 
@@ -790,6 +797,73 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
             self.legend_required = True
 
         return actor
+
+    def add_camera_poses(self, R, t, arrow_scale='auto', color='red', display_xy=False):
+        """Add camera poses to the plotter as arrows.
+
+        Each camera is represented by an arrow pointing in its viewing direction
+        (Z-axis of the camera coordinate system). Optionally the X (blue) and
+        Y (green) axes can be shown as well.
+
+        Parameters
+        ----------
+        R : array_like
+            Rotation matrix or matrices. Shape ``(3, 3)`` for a single camera or
+            ``(n_cameras, 3, 3)`` for multiple cameras.
+        t : array_like
+            Translation vector or vectors. Shape ``(3,)`` for a single camera or
+            ``(n_cameras, 3)`` for multiple cameras.
+        arrow_scale : float or 'auto', optional
+            Length of the arrows. If ``'auto'``, the scale is set to 1/10th of
+            the mean camera-to-origin distance. Default is ``'auto'``.
+        color : str, optional
+            Color of the viewing-direction (Z-axis) arrow. Default is ``'red'``.
+        display_xy : bool, optional
+            If ``True``, also draws the camera X-axis in blue and Y-axis in
+            green. Default is ``False``.
+
+        Returns
+        -------
+        list of actors
+            PyVista actors for all arrows that were added.
+
+        Examples
+        --------
+        >>> p = Plotter3D()
+        >>> p.add_camera_poses(R_all, t_all, color='gray')
+        >>> p.add_camera_poses(R_all[inds], t_all[inds], color='red', arrow_scale=100)
+        >>> p.add_camera_poses(R_all[0], t_all[0], color='blue')
+        >>> p.show()
+        """
+        R = np.array(R)
+        t = np.array(t)
+
+        # Normalise to batched shapes
+        if R.ndim == 2:
+            R = R[np.newaxis, ...]
+        if t.ndim == 1:
+            t = t[np.newaxis, ...]
+
+        # Camera centres in world coordinates: C = -R^T t
+        C = np.array([-R[i].T @ t[i] for i in range(len(t))])
+
+        if arrow_scale == 'auto':
+            arrow_scale = np.mean(np.linalg.norm(C, axis=1)) / 10
+        elif not isinstance(arrow_scale, (int, float)):
+            raise ValueError("arrow_scale must be a float or 'auto'.")
+
+        actors = []
+        for i in range(len(C)):
+            origin = C[i]
+            direction_z = R[i][2, :]  # Z-axis = viewing direction
+
+            actors.append(self.add_arrow(origin, direction_z, color=color, scale=arrow_scale))
+
+            if display_xy:
+                actors.append(self.add_arrow(origin, R[i][0, :], color='blue',  scale=arrow_scale))
+                actors.append(self.add_arrow(origin, R[i][1, :], color='green', scale=arrow_scale))
+
+        return actors
 
     def add_point_picker(self, callback=None):
         """Enable point picking on the plotter.

@@ -369,7 +369,7 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
             actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap,
                                   edge_color=edge_color, opacity=opacity,
                                   scalar_bar_args=_sbar)
-            actor.mapper.scalar_range = (np.min(np.abs(field)), np.abs(np.max(field))) # Set the field range
+            actor.mapper.scalar_range = (np.min(field), np.max(field)) # Set the field range
 
         else:
             actor = self.add_mesh(mesh, show_edges=True, edge_color=edge_color, opacity=opacity)
@@ -670,7 +670,7 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
             actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap, 
                                 opacity=opacity, line_width=line_width,
                                 scalar_bar_args=_sbar)
-            actor.mapper.scalar_range = (np.min(np.abs(field)), np.max(np.abs(field)))
+            actor.mapper.scalar_range = (np.min(field), np.max(field))
 
         else:
             actor = self.add_mesh(mesh, color=color, point_size=point_size, label=label, 
@@ -763,7 +763,7 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
         if field is not None:
             mesh.point_data[field_name] = field_0
             actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap, opacity=opacity)
-            actor.mapper.scalar_range = (np.min(np.abs(field)), np.max(np.abs(field))) # Set the field range
+            actor.mapper.scalar_range = (np.min(field), np.max(field)) # Set the field range
 
         else:
             # actor = self.add_mesh(mesh, show_edges=True, edge_color=edge_color, opacity=opacity)

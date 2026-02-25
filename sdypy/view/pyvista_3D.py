@@ -798,43 +798,115 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
         return actor
 
-    def add_camera_poses(self, R, t, arrow_scale='auto', color='red', display_xy=False):
-        """Add camera poses to the plotter as arrows.
+    @staticmethod
+    def _make_camera_pyramid(origin, x_axis, y_axis, z_axis, scale,
+                             width_factor=0.4, height_factor=0.3):
+        """Build a wireframe camera-frustum pyramid as a :class:`pyvista.PolyData`.
 
-        Each camera is represented by an arrow pointing in its viewing direction
-        (Z-axis of the camera coordinate system). Optionally the X (blue) and
-        Y (green) axes can be shown as well.
+        The apex is at *origin* (the camera centre). The rectangular base is
+        centred at ``origin + scale * z_axis`` and its half-extents along the
+        camera X and Y axes are ``scale * width_factor`` and
+        ``scale * height_factor``, matching a roughly 4:3 aspect ratio.
+
+        Parameters
+        ----------
+        origin : np.ndarray, shape (3,)
+        x_axis, y_axis, z_axis : np.ndarray, shape (3,)
+            Unit vectors of the camera coordinate frame.
+        scale : float
+            Overall size of the pyramid.
+        width_factor, height_factor : float
+            Half-size of the base rectangle expressed as a fraction of *scale*.
+        """
+        w = scale * width_factor
+        h = scale * height_factor
+        d = scale                   # depth (apex → base)
+
+        base_centre = origin + d * z_axis
+        # Four base corners (top-right, top-left, bottom-left, bottom-right)
+        corners = np.array([
+            base_centre + w * x_axis + h * y_axis,
+            base_centre - w * x_axis + h * y_axis,
+            base_centre - w * x_axis - h * y_axis,
+            base_centre + w * x_axis - h * y_axis,
+        ])
+
+        points = np.vstack([origin, corners])  # index 0 = apex, 1–4 = base
+
+        # Lines: [n_pts, i, j, n_pts, i, j, ...]
+        lines = np.array([
+            2, 0, 1,   # apex → top-right
+            2, 0, 2,   # apex → top-left
+            2, 0, 3,   # apex → bottom-left
+            2, 0, 4,   # apex → bottom-right
+            2, 1, 2,   # base top edge
+            2, 2, 3,   # base left edge
+            2, 3, 4,   # base bottom edge
+            2, 4, 1,   # base right edge
+        ], dtype=np.int_)
+
+        mesh = pv.PolyData()
+        mesh.points = points
+        mesh.lines = lines
+        return mesh
+
+    def add_camera_poses(self, R, t, arrow_scale='auto', color='red',
+                         camera_mode='arrow'):
+        """Add camera poses to the plotter.
+
+        Each camera can be visualised in one of three modes controlled by
+        *camera_mode*:
+
+        * ``'arrow'``    – a single arrow along the camera Z-axis (viewing
+          direction). This is the default.
+        * ``'meshroom'`` – three orthogonal arrows: X (blue), Y (green), and Z
+          (*color*). Similar to the camera gizmo in Meshroom / RealityCapture.
+        * ``'blender'``  – a wireframe frustum pyramid with the apex at the
+          camera centre and a rectangular base facing the viewing direction,
+          identical to Blender's camera icon in the 3-D viewport.
 
         Parameters
         ----------
         R : array_like
-            Rotation matrix or matrices. Shape ``(3, 3)`` for a single camera or
-            ``(n_cameras, 3, 3)`` for multiple cameras.
+            Rotation matrix or matrices. Shape ``(3, 3)`` for a single camera
+            or ``(n_cameras, 3, 3)`` for multiple cameras.
         t : array_like
-            Translation vector or vectors. Shape ``(3,)`` for a single camera or
-            ``(n_cameras, 3)`` for multiple cameras.
+            Translation vector or vectors. Shape ``(3,)`` for a single camera
+            or ``(n_cameras, 3)`` for multiple cameras.
         arrow_scale : float or 'auto', optional
-            Length of the arrows. If ``'auto'``, the scale is set to 1/10th of
-            the mean camera-to-origin distance. Default is ``'auto'``.
+            Overall size of the camera glyph. For ``'arrow'`` and
+            ``'meshroom'`` this is the arrow length; for ``'blender'`` it is
+            the depth of the pyramid (apex → base). If ``'auto'``, the scale
+            is set to 1/10th of the mean camera-to-origin distance.
+            Default is ``'auto'``.
         color : str, optional
-            Color of the viewing-direction (Z-axis) arrow. Default is ``'red'``.
+            Color of the primary glyph element (Z-axis / pyramid).
+            Default is ``'red'``.
+        camera_mode : {'arrow', 'meshroom', 'blender'}, optional
+            Visual style for each camera. Default is ``'arrow'``.
         display_xy : bool, optional
-            If ``True``, also draws the camera X-axis in blue and Y-axis in
-            green. Default is ``False``.
+            Deprecated shorthand for ``camera_mode='meshroom'``.
+            Ignored when *camera_mode* is not ``'arrow'``. Default is ``False``.
 
         Returns
         -------
         list of actors
-            PyVista actors for all arrows that were added.
+            PyVista actors that were added to the plotter.
 
         Examples
         --------
         >>> p = Plotter3D()
         >>> p.add_camera_poses(R_all, t_all, color='gray')
-        >>> p.add_camera_poses(R_all[inds], t_all[inds], color='red', arrow_scale=100)
-        >>> p.add_camera_poses(R_all[0], t_all[0], color='blue')
+        >>> p.add_camera_poses(R_all[inds], t_all[inds], color='red',
+        ...                    arrow_scale=100, camera_mode='meshroom')
+        >>> p.add_camera_poses(R_all[0], t_all[0], color='blue',
+        ...                    camera_mode='blender')
         >>> p.show()
         """
+        _VALID_MODES = {'arrow', 'meshroom', 'blender'}
+        if camera_mode not in _VALID_MODES:
+            raise ValueError(f"camera_mode must be one of {_VALID_MODES}, got '{camera_mode}'.")
+
         R = np.array(R)
         t = np.array(t)
 
@@ -854,14 +926,25 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
         actors = []
         for i in range(len(C)):
-            origin = C[i]
-            direction_z = R[i][2, :]  # Z-axis = viewing direction
+            origin  = C[i]
+            x_axis  = R[i][0, :]
+            y_axis  = R[i][1, :]
+            z_axis  = R[i][2, :]  # viewing direction
 
-            actors.append(self.add_arrow(origin, direction_z, color=color, scale=arrow_scale))
+            if camera_mode == 'arrow':
+                actors.append(self.add_arrow(origin, z_axis, color=color, scale=arrow_scale))
 
-            if display_xy:
-                actors.append(self.add_arrow(origin, R[i][0, :], color='blue',  scale=arrow_scale))
-                actors.append(self.add_arrow(origin, R[i][1, :], color='green', scale=arrow_scale))
+            elif camera_mode == 'meshroom':
+                actors.append(self.add_arrow(origin, z_axis, color=color,   scale=arrow_scale))
+                actors.append(self.add_arrow(origin, x_axis, color='blue',  scale=arrow_scale))
+                actors.append(self.add_arrow(origin, y_axis, color='green', scale=arrow_scale))
+
+            elif camera_mode == 'blender':
+                pyramid = self._make_camera_pyramid(origin, x_axis, y_axis, z_axis, arrow_scale)
+                self.mesh_dict[id(pyramid)] = pyramid
+                actor = self.add_mesh(pyramid, color=color, line_width=1.5)
+                self.mesh_actor_dict[id(pyramid)] = actor
+                actors.append(actor)
 
         return actors
 

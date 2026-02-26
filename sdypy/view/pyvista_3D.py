@@ -297,7 +297,8 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
                      edge_color='black', 
                      opacity=1,
                      animate=None,
-                     n_frames=100
+                     n_frames=100,
+                     scalar_bar_args=None
                     ):
         """Add a finite element mesh to the plotter.
         
@@ -325,6 +326,12 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
             To start the animation, call the ``start_animation`` method.
         n_frames : int
             The number of frames in a single period of the animation.
+        scalar_bar_args : dict, optional
+            A dictionary of keyword arguments passed directly to the PyVista scalar bar.
+            Common keys: ``'title'`` (colorbar label), ``'fmt'`` (number format string,
+            e.g. ``'%.1f'``), ``'color'``, ``'width'``, ``'height'``.
+            See :func:`pyvista.Plotter.add_scalar_bar` for the full list.
+            Default is ``None`` (PyVista defaults).
         """
         mesh = create_fem_mesh(nodes, elements)
         self.mesh_dict[id(mesh)] = mesh
@@ -358,7 +365,10 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
         if field is not None:
             mesh.point_data[field_name] = field[:, 0]
-            actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap, edge_color=edge_color, opacity=opacity)
+            _sbar = scalar_bar_args if scalar_bar_args is not None else {}
+            actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap,
+                                  edge_color=edge_color, opacity=opacity,
+                                  scalar_bar_args=_sbar)
             actor.mapper.scalar_range = (np.min(field), np.max(field)) # Set the field range
 
         else:
@@ -553,7 +563,7 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
     def add_points(self, points, color='red', point_size=5.0, render_points_as_spheres=False, label="", 
                   animate=None, n_frames=100, field=None, field_name="field", cmap="viridis", opacity=1,
-                  connect_points=False, line_width=1.0):
+                  connect_points=False, line_width=1.0, scalar_bar_args=None,):
         """Add points to the plotter.
         
         Parameters
@@ -590,6 +600,12 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
             pairs of point indices to connect specific points. Default is False.
         line_width : float, optional
             Width of the connecting lines. Default is 1.0.
+        scalar_bar_args : dict, optional
+            A dictionary of keyword arguments passed directly to the PyVista scalar bar.
+            Common keys: ``'title'`` (colorbar label), ``'fmt'`` (number format string,
+            e.g. ``'%.1f'``), ``'color'``, ``'width'``, ``'height'``.
+            See :func:`pyvista.Plotter.add_scalar_bar` for the full list.
+            Default is ``None`` (PyVista defaults).
         """
         if points.ndim == 1:
             points = points[None, :]
@@ -625,10 +641,9 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
         if animate is not None:
             displacements = prepare_animation_displacements(animate, n_nodes=points.shape[0], n_frames=n_frames)
-
             mesh.points = mesh.points + displacements[:, :, 0]
             
-            if field == 'norm':
+            if isinstance(field, str) and field == 'norm':
                 field = np.linalg.norm(displacements, axis=1)
 
             # if field_name is already in animation_data, add different field_name
@@ -651,8 +666,10 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
 
         if field is not None:
             mesh.point_data[field_name] = field_0
+            _sbar = scalar_bar_args if scalar_bar_args is not None else {}
             actor = self.add_mesh(mesh, show_edges=True, scalars=field_name, cmap=cmap, 
-                                opacity=opacity, line_width=line_width)
+                                opacity=opacity, line_width=line_width,
+                                scalar_bar_args=_sbar)
             actor.mapper.scalar_range = (np.min(field), np.max(field))
 
         else:
@@ -790,6 +807,156 @@ class Plotter3D(BackgroundPlotter, BasePlotter):
             self.legend_required = True
 
         return actor
+
+    @staticmethod
+    def _make_camera_pyramid(origin, x_axis, y_axis, z_axis, scale,
+                             width_factor=0.4, height_factor=0.3):
+        """Build a wireframe camera-frustum pyramid as a :class:`pyvista.PolyData`.
+
+        The apex is at *origin* (the camera centre). The rectangular base is
+        centred at ``origin + scale * z_axis`` and its half-extents along the
+        camera X and Y axes are ``scale * width_factor`` and
+        ``scale * height_factor``, matching a roughly 4:3 aspect ratio.
+
+        Parameters
+        ----------
+        origin : np.ndarray, shape (3,)
+        x_axis, y_axis, z_axis : np.ndarray, shape (3,)
+            Unit vectors of the camera coordinate frame.
+        scale : float
+            Overall size of the pyramid.
+        width_factor, height_factor : float
+            Half-size of the base rectangle expressed as a fraction of *scale*.
+        """
+        w = scale * width_factor
+        h = scale * height_factor
+        d = scale                   # depth (apex → base)
+
+        base_centre = origin + d * z_axis
+        # Four base corners (top-right, top-left, bottom-left, bottom-right)
+        corners = np.array([
+            base_centre + w * x_axis + h * y_axis,
+            base_centre - w * x_axis + h * y_axis,
+            base_centre - w * x_axis - h * y_axis,
+            base_centre + w * x_axis - h * y_axis,
+        ])
+
+        points = np.vstack([origin, corners])  # index 0 = apex, 1–4 = base
+
+        # Lines: [n_pts, i, j, n_pts, i, j, ...]
+        lines = np.array([
+            2, 0, 1,   # apex → top-right
+            2, 0, 2,   # apex → top-left
+            2, 0, 3,   # apex → bottom-left
+            2, 0, 4,   # apex → bottom-right
+            2, 1, 2,   # base top edge
+            2, 2, 3,   # base left edge
+            2, 3, 4,   # base bottom edge
+            2, 4, 1,   # base right edge
+        ], dtype=np.int_)
+
+        mesh = pv.PolyData()
+        mesh.points = points
+        mesh.lines = lines
+        return mesh
+
+    def add_camera_poses(self, R, t, arrow_scale='auto', color='red',
+                         camera_mode='arrow'):
+        """Add camera poses to the plotter.
+
+        Each camera can be visualised in one of three modes controlled by
+        *camera_mode*:
+
+        * ``'arrow'``    – a single arrow along the camera Z-axis (viewing
+          direction). This is the default.
+        * ``'meshroom'`` – three orthogonal arrows: X (blue), Y (green), and Z
+          (*color*). Similar to the camera gizmo in Meshroom / RealityCapture.
+        * ``'blender'``  – a wireframe frustum pyramid with the apex at the
+          camera centre and a rectangular base facing the viewing direction,
+          identical to Blender's camera icon in the 3-D viewport.
+
+        Parameters
+        ----------
+        R : array_like
+            Rotation matrix or matrices. Shape ``(3, 3)`` for a single camera
+            or ``(n_cameras, 3, 3)`` for multiple cameras.
+        t : array_like
+            Translation vector or vectors. Shape ``(3,)`` for a single camera
+            or ``(n_cameras, 3)`` for multiple cameras.
+        arrow_scale : float or 'auto', optional
+            Overall size of the camera glyph. For ``'arrow'`` and
+            ``'meshroom'`` this is the arrow length; for ``'blender'`` it is
+            the depth of the pyramid (apex → base). If ``'auto'``, the scale
+            is set to 1/10th of the mean camera-to-origin distance.
+            Default is ``'auto'``.
+        color : str, optional
+            Color of the primary glyph element (Z-axis / pyramid).
+            Default is ``'red'``.
+        camera_mode : {'arrow', 'meshroom', 'blender'}, optional
+            Visual style for each camera. Default is ``'arrow'``.
+        display_xy : bool, optional
+            Deprecated shorthand for ``camera_mode='meshroom'``.
+            Ignored when *camera_mode* is not ``'arrow'``. Default is ``False``.
+
+        Returns
+        -------
+        list of actors
+            PyVista actors that were added to the plotter.
+
+        Examples
+        --------
+        >>> p = Plotter3D()
+        >>> p.add_camera_poses(R_all, t_all, color='gray')
+        >>> p.add_camera_poses(R_all[inds], t_all[inds], color='red',
+        ...                    arrow_scale=100, camera_mode='meshroom')
+        >>> p.add_camera_poses(R_all[0], t_all[0], color='blue',
+        ...                    camera_mode='blender')
+        >>> p.show()
+        """
+        _VALID_MODES = {'arrow', 'meshroom', 'blender'}
+        if camera_mode not in _VALID_MODES:
+            raise ValueError(f"camera_mode must be one of {_VALID_MODES}, got '{camera_mode}'.")
+
+        R = np.array(R)
+        t = np.array(t)
+
+        # Normalise to batched shapes
+        if R.ndim == 2:
+            R = R[np.newaxis, ...]
+        if t.ndim == 1:
+            t = t[np.newaxis, ...]
+
+        # Camera centres in world coordinates: C = -R^T t
+        C = np.array([-R[i].T @ t[i] for i in range(len(t))])
+
+        if arrow_scale == 'auto':
+            arrow_scale = np.mean(np.linalg.norm(C, axis=1)) / 10
+        elif not isinstance(arrow_scale, (int, float)):
+            raise ValueError("arrow_scale must be a float or 'auto'.")
+
+        actors = []
+        for i in range(len(C)):
+            origin  = C[i]
+            x_axis  = R[i][0, :]
+            y_axis  = R[i][1, :]
+            z_axis  = R[i][2, :]  # viewing direction
+
+            if camera_mode == 'arrow':
+                actors.append(self.add_arrow(origin, z_axis, color=color, scale=arrow_scale))
+
+            elif camera_mode == 'meshroom':
+                actors.append(self.add_arrow(origin, z_axis, color=color,   scale=arrow_scale))
+                actors.append(self.add_arrow(origin, x_axis, color='blue',  scale=arrow_scale))
+                actors.append(self.add_arrow(origin, y_axis, color='green', scale=arrow_scale))
+
+            elif camera_mode == 'blender':
+                pyramid = self._make_camera_pyramid(origin, x_axis, y_axis, z_axis, arrow_scale)
+                self.mesh_dict[id(pyramid)] = pyramid
+                actor = self.add_mesh(pyramid, color=color, line_width=1.5)
+                self.mesh_actor_dict[id(pyramid)] = actor
+                actors.append(actor)
+
+        return actors
 
     def add_point_picker(self, callback=None):
         """Enable point picking on the plotter.

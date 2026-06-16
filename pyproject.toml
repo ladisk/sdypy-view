@@ -47,7 +47,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/sdypy/sdypy-view"
-Documentation = "https://github.com/sdypy/sdypy-view"
+Documentation = "https://sdypy-view.readthedocs.io/en/latest/index.html"
 Source = "https://github.com/sdypy/sdypy-view"
 
 [project.optional-dependencies]
@@ -56,7 +56,7 @@ qt = [
 ]
 docs = [
     "sphinx",
-    "sphinx-rtd-theme",
+    "pydata-sphinx-theme",
     "sphinx-copybutton>=0.5.2",
 ]
 dev = [

@@ -14,10 +14,12 @@ project = 'sdypy-view'
 copyright = '2024, Klemen Zaletelj, Janko Slavič, Domen Gorjup'
 author = 'Klemen Zaletelj, Janko Slavič, Domen Gorjup'
 
+# Version is sourced from the installed distribution metadata so the docs never
+# drift from the package (RTD installs the package before building).
+from importlib.metadata import version as _get_version
+release = _get_version('sdypy-view')
 # The short X.Y version
-version = '0.2'
-# The full version, including alpha/beta/rc tags
-release = '0.2.0'
+version = '.'.join(release.split('.')[:2])
 
 
 # -- General configuration ---------------------------------------------------
@@ -49,8 +51,6 @@ pygments_style = None
 
 html_theme = 'pydata_sphinx_theme'
 
-html_static_path = []
-
 html_theme_options = {
     "show_nav_level": 2,
 }
@@ -62,8 +62,6 @@ htmlhelp_basename = 'sdypy_view_doc'
 
 
 # -- Options for LaTeX output ------------------------------------------------
-
-latex_elements = {}
 
 latex_documents = [
     (master_doc, 'sdypy_view.tex', 'sdypy-view Documentation',

@@ -6,14 +6,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sdypy-view"
-version = "0.1.6"
+version = "0.2.0"
 authors = [
     { name = "Klemen Zaletelj, Janko Slavič et al.", email = "janko.slavic@fs.uni-lj.si" },
 ]
 maintainers = [
     { name = "Klemen Zaletelj, Janko Slavič et al.", email = "klemen.zaletelj@fs.uni-lj.si" },
 ]
-license = "MIT"
+license = { text = "MIT" }
 description = "Visualization of SDyPy models and results"
 readme = "README.rst"
 keywords = [
@@ -35,8 +35,9 @@ dependencies = [
     "pyperclip",
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -44,26 +45,44 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 
+[project.urls]
+Homepage = "https://github.com/sdypy/sdypy-view"
+Documentation = "https://sdypy-view.readthedocs.io/en/latest/index.html"
+Source = "https://github.com/sdypy/sdypy-view"
+
 [project.optional-dependencies]
-dev = [
+qt = [
+    "pyqt6",
+]
+docs = [
     "sphinx",
+    "pydata-sphinx-theme",
+    "sphinx-copybutton>=0.5.2",
+]
+dev = [
+    "sdypy-view[docs]",
     "twine",
     "wheel",
     "pytest",
     "build",
-    "sphinx-rtd-theme",
-    "sphinx-copybutton>=0.5.2",
+    "flake8",
 ]
-qt = [
-    "pyqt6",
-]
-
-[project.urls]
-homepage = "https://github.com/sdypy/sdypy-view"
-documentation = "https://github.com/sdypy/sdypy-view"
-source = "https://github.com/sdypy/sdypy-view"
 
 [tool.hatch.build.targets.wheel]
+packages = ["sdypy"]
+
+[tool.hatch.build.targets.sdist]
 include = [
-    "sdypy",
+    "sdypy/",
+    "tests/",
+    "docs/",
+    "README.rst",
+    "License",
+    "pyproject.toml",
+    "readthedocs.yaml",
+    "CONTRIBUTING.rst",
+]
+exclude = [
+    "docs/_build/",
+    "docs/build/",
 ]
